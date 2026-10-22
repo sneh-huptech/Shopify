@@ -1,9 +1,14 @@
 {% comment %}theme-check-disable UndefinedObject{% endcomment %}
 {{ 'section-footer.css' | asset_url | stylesheet_tag }}
-{{ 'component-newsletter.css' | asset_url | stylesheet_tag }}
-{{ 'component-list-menu.css' | asset_url | stylesheet_tag }}
-{{ 'component-list-payment.css' | asset_url | stylesheet_tag }}
-{{ 'component-list-social.css' | asset_url | stylesheet_tag }}
+{%- if section.settings.newsletter_enable -%}
+  {{ 'component-newsletter.css' | asset_url | stylesheet_tag }}
+{%- endif -%}
+{%- if section.settings.payment_enable -%}
+  {{ 'component-list-payment.css' | asset_url | stylesheet_tag }}
+{%- endif -%}
+{%- if section.settings.show_social -%}
+  {{ 'component-list-social.css' | asset_url | stylesheet_tag }}
+{%- endif -%}
 {%- if section.settings.enable_country_selector or section.settings.enable_language_selector -%}
   {{ 'component-localization-form.css' | asset_url | stylesheet_tag }}
 {%- endif -%}

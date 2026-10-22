@@ -1,0 +1,22 @@
+
+<section class="about-custom">
+  <div class="about-custom__container">
+    <p>ABOUT OUR BRAND</p>
+    <h1>{{ page.title | escape }}</h1>
+    <div class="about-custom__content">
+      {{ page.content }}
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Custom About Page",
+  "settings": [],
+  "presets": [
+    {
+      "name": "Custom About Page"
+    }
+  ]
+}
+{% endschema %}
