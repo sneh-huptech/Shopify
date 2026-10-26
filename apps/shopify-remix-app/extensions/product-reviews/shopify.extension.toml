@@ -1,0 +1,7 @@
+api_version = "2025-01"
+
+[[extensions]]
+type = "theme"
+name = "Product Reviews"
+handle = "product-reviews"
+uid = "d40bf8ce-aa3c-5868-ba22-fe4fb0920fb061797446"

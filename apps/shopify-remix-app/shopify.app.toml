@@ -1,0 +1,37 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "e940e36dd1ffb29387cdd15fe5424b99"
+application_url = "https://localhost:3458"
+embedded = true
+name = "Remix Test App"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products"
+
+[webhooks]
+api_version = "2027-01"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/scopes_update"]
+  uri = "/webhooks/app/scopes_update"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "/webhooks/app/uninstalled"
+
+  # Mandatory compliance topics for public apps, handled by /webhooks/compliance
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/compliance"
+  compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+
+[app_proxy]
+url = "https://example.com/proxy"
+subpath = "reviews"
+prefix = "apps"
+
+[auth]
+redirect_urls = [ "https://localhost:3458/auth/callback" ]
+
+[build]
+automatically_update_urls_on_dev = true

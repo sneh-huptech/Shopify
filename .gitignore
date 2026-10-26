@@ -23,3 +23,6 @@ npm-debug.log*
 # Temporary files
 *.tmp
 *.temp
+
+# Original nested repository metadata, retained locally for recovery
+/.repo-backups/
