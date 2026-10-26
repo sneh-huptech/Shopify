@@ -1,0 +1,31 @@
+<div class="pr-rating" data-pr-rating data-product-id="{{ product.id }}"
+  data-endpoint="{{ routes.root_url | append: 'apps/reviews' | replace: '//', '/' }}"
+  data-show-empty="{{ block.settings.show_empty }}"
+  style="--pr-rating-color: {{ block.settings.color }}; --pr-rating-size: {{ block.settings.size }}px;"
+  hidden {{ block.shopify_attributes }}>
+  <span class="pr-rating__stars" data-pr-rating-stars role="img" aria-label="Product rating">
+    {% for i in (1..5) %}
+      <span class="pr-rating__star" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="m12 2.8 2.85 5.78 6.38.93-4.62 4.5 1.09 6.35L12 17.36l-5.7 3 1.09-6.35-4.62-4.5 6.38-.93Z"/></svg>
+        <span class="pr-rating__fill"><svg viewBox="0 0 24 24" focusable="false"><path d="m12 2.8 2.85 5.78 6.38.93-4.62 4.5 1.09 6.35L12 17.36l-5.7 3 1.09-6.35-4.62-4.5 6.38-.93Z"/></svg></span>
+      </span>
+    {% endfor %}
+  </span>
+  <span data-pr-rating-label></span>
+  <a class="pr-rating__link" data-pr-rating-link hidden></a>
+</div>
+
+{% schema %}
+{
+  "name": "Product rating",
+  "target": "section",
+  "stylesheet": "product-rating.css",
+  "javascript": "product-rating.js",
+  "enabled_on": { "templates": ["product"] },
+  "settings": [
+    { "type": "color", "id": "color", "label": "Star color", "default": "#B8860B" },
+    { "type": "range", "id": "size", "label": "Star size", "min": 14, "max": 28, "step": 1, "unit": "px", "default": 20 },
+    { "type": "checkbox", "id": "show_empty", "label": "Show when there are no published reviews", "default": false }
+  ]
+}
+{% endschema %}

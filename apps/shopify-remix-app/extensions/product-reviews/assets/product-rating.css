@@ -1,0 +1,9 @@
+.pr-rating[hidden],.pr-rating [hidden]{display:none!important}
+.pr-rating{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-block:12px;font:inherit;font-size:14px;line-height:1.5;color:inherit}
+.pr-rating__stars{display:inline-flex;gap:3px;direction:ltr;flex-shrink:0}
+.pr-rating__star{position:relative;display:block;width:var(--pr-rating-size,20px);height:var(--pr-rating-size,20px)}
+.pr-rating__star svg{display:block;width:var(--pr-rating-size,20px);height:var(--pr-rating-size,20px);fill:transparent;stroke:var(--pr-rating-color,#B8860B);stroke-width:1.5;stroke-linejoin:round}
+.pr-rating__fill{position:absolute;inset:0 auto 0 0;width:var(--fill,0%);overflow:hidden}
+.pr-rating__fill svg{fill:var(--pr-rating-color,#B8860B)}
+.pr-rating__link{color:inherit;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;min-height:44px;display:inline-flex;align-items:center}
+.pr-rating__link:focus-visible{outline:2px solid currentColor;outline-offset:4px;border-radius:3px}

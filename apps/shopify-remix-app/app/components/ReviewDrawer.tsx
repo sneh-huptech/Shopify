@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useFetcher } from "@remix-run/react";
+import { ReviewAttachments } from "./ReviewAttachments";
 import { ReviewDialog } from "./ReviewDialog";
 import type { ReviewActionResult } from "../review-input";
 import { StarRating } from "./StarRating";
@@ -12,28 +13,46 @@ interface ReviewDrawerProps {
   onDeleted: () => void;
 }
 
-export function ReviewDrawer({ review, onClose, onDeleted }: ReviewDrawerProps) {
+export function ReviewDrawer({
+  review,
+  onClose,
+  onDeleted,
+}: ReviewDrawerProps) {
   const fetcher = useFetcher<ReviewActionResult>();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(review.status);
 
-  useEffect(() => { setCurrentStatus(review.status); }, [review.status]);
+  useEffect(() => {
+    setCurrentStatus(review.status);
+  }, [review.status]);
 
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.success && fetcher.data.intent === "delete") onDeleted();
-    if (fetcher.state === "idle" && fetcher.data?.success && fetcher.data.status) setCurrentStatus(fetcher.data.status);
+    if (
+      fetcher.state === "idle" &&
+      fetcher.data?.success &&
+      fetcher.data.intent === "delete"
+    )
+      onDeleted();
+    if (
+      fetcher.state === "idle" &&
+      fetcher.data?.success &&
+      fetcher.data.status
+    )
+      setCurrentStatus(fetcher.data.status);
   }, [fetcher.state, fetcher.data, onDeleted]);
 
   const isSubmitting = fetcher.state !== "idle";
 
-  const handleStatusChange = (newStatus: "published" | "rejected" | "pending") => {
+  const handleStatusChange = (
+    newStatus: "published" | "rejected" | "pending",
+  ) => {
     fetcher.submit(
       {
         intent: "update_status",
         reviewId: review.id || (review._id as any)?.toString(),
         status: newStatus,
       },
-      { method: "post" }
+      { method: "post" },
     );
   };
 
@@ -43,7 +62,7 @@ export function ReviewDrawer({ review, onClose, onDeleted }: ReviewDrawerProps) 
         intent: "delete",
         reviewId: review.id || (review._id as any)?.toString(),
       },
-      { method: "post" }
+      { method: "post" },
     );
   };
 
@@ -56,319 +75,191 @@ export function ReviewDrawer({ review, onClose, onDeleted }: ReviewDrawerProps) 
   });
 
   return (
-    <>
-      <ReviewDialog labelledBy="review-details-title" busy={isSubmitting} onClose={onClose}
-        style={{
-          position: "fixed",
-          top: 0,
-          right: 0,
-          bottom: 0,
-          margin: "0 0 0 auto",
-          height: "100dvh",
-          maxHeight: "100dvh",
-          width: "100%",
-          maxWidth: "480px",
-          backgroundColor: "#FFFFFF",
-          boxShadow: "-4px 0 24px rgba(0, 0, 0, 0.12)",
-          zIndex: 999,
-          display: "flex",
-          flexDirection: "column",
-          animation: "slideInRight 200ms cubic-bezier(0.16, 1, 0.3, 1)",
-        }}
-      >
-        {/* Header */}
-        <div
-          style={{
-            padding: "16px 20px",
-            borderBottom: "1px solid #E2E8F0",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <h2 id="review-details-title" style={{ fontSize: "16px", fontWeight: 600, color: "#0F172A", margin: 0 }}>
-              Review Details
-            </h2>
-            <StatusBadge status={currentStatus} />
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            aria-label="Close review details"
-            style={{
-              background: "none",
-              border: "none",
-              padding: "6px",
-              cursor: "pointer",
-              color: "#64748B",
-              borderRadius: "6px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
+    <ReviewDialog
+      labelledBy="review-details-title"
+      busy={isSubmitting}
+      onClose={onClose}
+      style={{
+        top: 0,
+        right: 0,
+        bottom: 0,
+        margin: "0 0 0 auto",
+        height: "100dvh",
+        maxHeight: "100dvh",
+        width: "100%",
+        maxWidth: 540,
+        display: "flex",
+        flexDirection: "column",
+        background: "#fff",
+      }}
+    >
+      <header className="review-dialog-header">
+        <div>
+          <p className="review-dialog-eyebrow">Customer feedback</p>
+          <h2 id="review-details-title">Review details</h2>
         </div>
-
-        {(isSubmitting || fetcher.data?.error || fetcher.data?.message) && (
-          <div role={fetcher.data?.error ? "alert" : "status"} aria-live="polite" style={{ padding: "12px 20px", backgroundColor: fetcher.data?.error ? "#FEF2F2" : "#F8FAFC", color: fetcher.data?.error ? "#991B1B" : "#334155" }}>
-            {isSubmitting ? "Saving review…" : fetcher.data?.error || fetcher.data?.message}
+        <button
+          className="review-dialog-close"
+          type="button"
+          onClick={onClose}
+          disabled={isSubmitting}
+          aria-label="Close review details"
+        >
+          ×
+        </button>
+      </header>
+      {(isSubmitting || fetcher.data?.error || fetcher.data?.message) && (
+        <div
+          className={`review-dialog-message${!isSubmitting && fetcher.data?.error ? " review-dialog-error" : ""}`}
+          role={!isSubmitting && fetcher.data?.error ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {isSubmitting
+            ? "Saving review…"
+            : fetcher.data?.error || fetcher.data?.message}
+        </div>
+      )}
+      <div className="review-dialog-body review-detail-body">
+        <section
+          className="review-detail-status"
+          aria-label="Publication status"
+        >
+          <StatusBadge status={currentStatus} />
+          <p>
+            {currentStatus === "published"
+              ? "Visible on the product page and included in its rating."
+              : currentStatus === "pending"
+                ? "Awaiting approval. Hidden from your storefront."
+                : "Rejected. Hidden from your storefront."}
+          </p>
+        </section>
+        <section
+          className="review-feedback-card"
+          aria-labelledby="review-feedback-title"
+        >
+          <div className="review-feedback-meta">
+            <StarRating value={review.rating} size="md" />
+            <span>{review.rating} out of 5</span>
           </div>
+          <h3 id="review-feedback-title">{review.title}</h3>
+          <p>{review.body}</p>
+          <time dateTime={new Date(review.createdAt).toISOString()}>
+            {formattedDate}
+          </time>
+        </section>
+        {review.media?.length > 0 && (
+          <ReviewAttachments reviewId={review.id || ""} media={review.media} />
         )}
-        {/* Content Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: "20px" }}>
-          {/* Review Content Card */}
-          <div
-            style={{
-              padding: "16px",
-              backgroundColor: "#F8FAFC",
-              borderRadius: "8px",
-              border: "1px solid #E2E8F0",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-              <StarRating value={review.rating} size="md" />
-              <span style={{ fontSize: "12px", color: "#64748B" }}>{formattedDate}</span>
-            </div>
-
-            <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#0F172A", margin: "0 0 8px 0" }}>
-              {review.title}
-            </h3>
-            <p style={{ fontSize: "14px", color: "#334155", margin: 0, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
-              {review.body}
-            </p>
-          </div>
-
-          {/* Product Info */}
-          <div>
-            <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Product
-            </span>
-            <div
-              style={{
-                marginTop: "6px",
-                padding: "12px 14px",
-                borderRadius: "8px",
-                border: "1px solid #E2E8F0",
-                backgroundColor: "#FFFFFF",
-                display: "flex",
-                flexDirection: "column",
-                gap: "2px",
-              }}
-            >
-              <span style={{ fontSize: "14px", fontWeight: 500, color: "#0F172A" }}>
-                {review.productTitle}
-              </span>
-              <span style={{ fontSize: "12px", color: "#64748B" }}>
-                Handle: {review.productHandle}
-              </span>
-            </div>
-          </div>
-
-          {/* Reviewer Info */}
-          <div>
-            <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              Customer Details
-            </span>
-            <div
-              style={{
-                marginTop: "6px",
-                padding: "12px 14px",
-                borderRadius: "8px",
-                border: "1px solid #E2E8F0",
-                backgroundColor: "#FFFFFF",
-                display: "flex",
-                flexDirection: "column",
-                gap: "6px",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "14px", fontWeight: 500, color: "#0F172A" }}>
-                  {review.reviewer.name}
-                </span>
-                {review.verifiedPurchase && (
-                  <span
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: 500,
-                      color: "#047857",
-                      backgroundColor: "#D1FAE5",
-                      padding: "2px 6px",
-                      borderRadius: "4px",
-                    }}
-                  >
-                    Verified Purchase
-                  </span>
-                )}
-              </div>
-              <span style={{ fontSize: "13px", color: "#64748B" }}>
-                {review.reviewer.email}
-              </span>
-              <span style={{ fontSize: "11px", color: "#94A3B8" }}>
-                Source: {review.source === "storefront" ? "Storefront" : "Manual"}
-              </span>
-            </div>
-          </div>
-
-          {/* Delete Confirmation Warning */}
-          {showDeleteConfirm && (
-            <div
-              style={{
-                padding: "14px",
-                backgroundColor: "#FEF2F2",
-                border: "1px solid #FCA5A5",
-                borderRadius: "8px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "10px",
-              }}
-            >
-              <div style={{ fontSize: "13px", fontWeight: 500, color: "#991B1B" }}>
-                Are you sure you want to delete this review? This action cannot be undone.
-              </div>
-              <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(false)}
-                  disabled={isSubmitting}
-                  style={{
-                    padding: "6px 12px",
-                    fontSize: "12px",
-                    fontWeight: 500,
-                    backgroundColor: "#FFFFFF",
-                    border: "1px solid #D1D5DB",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  disabled={isSubmitting}
-                  style={{
-                    padding: "6px 12px",
-                    fontSize: "12px",
-                    fontWeight: 500,
-                    backgroundColor: "#DC2626",
-                    color: "#FFFFFF",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                  }}
-                >
-                  {isSubmitting ? "Deleting…" : "Confirm Delete"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Action Footer */}
-        <div
-          style={{
-            padding: "16px 20px",
-            borderTop: "1px solid #E2E8F0",
-            backgroundColor: "#F8FAFC",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
+        <section
+          className="review-detail-section"
+          aria-labelledby="review-detail-product"
         >
-          <button
-            type="button"
-            onClick={() => setShowDeleteConfirm(true)}
-            disabled={isSubmitting}
-            style={{
-              padding: "7px 12px",
-              fontSize: "13px",
-              fontWeight: 500,
-              color: "#DC2626",
-              backgroundColor: "transparent",
-              border: "1px solid #FCA5A5",
-              borderRadius: "6px",
-              cursor: "pointer",
-            }}
+          <h3 id="review-detail-product">Product</h3>
+          <p className="review-detail-value">{review.productTitle}</p>
+          {review.variantTitle && <p>{review.variantTitle}</p>}
+          <p className="review-field-help">{review.productHandle}</p>
+        </section>
+        <section
+          className="review-detail-section"
+          aria-labelledby="review-detail-customer"
+        >
+          <h3 id="review-detail-customer">Customer</h3>
+          <p className="review-detail-value">{review.reviewer.name}</p>
+          <p>{review.reviewer.email}</p>
+          {review.verifiedPurchase && (
+            <p className="review-verified">Verified purchase</p>
+          )}
+          <p className="review-field-help">
+            Email is private and never displayed on your storefront.
+          </p>
+        </section>
+        <section className="review-detail-section" aria-label="Review source">
+          <h3>Source</h3>
+          <p>
+            {review.source === "storefront"
+              ? "Submitted on your storefront"
+              : review.source === "import"
+                ? "Imported review"
+                : "Added manually"}
+          </p>
+        </section>
+      </div>
+      <footer className="review-dialog-footer review-drawer-footer">
+        {showDeleteConfirm ? (
+          <div
+            className="review-delete-confirm"
+            role="group"
+            aria-labelledby="review-delete-heading"
           >
-            Delete
-          </button>
-
-          <div style={{ display: "flex", gap: "8px" }}>
-            {currentStatus !== "published" && (
+            <h3 id="review-delete-heading">Permanently delete this review?</h3>
+            <p>
+              This removes the review and its rating. This action cannot be
+              undone.
+            </p>
+            <div className="review-dialog-actions">
               <button
+                className="review-button"
                 type="button"
-                onClick={() => handleStatusChange("published")}
+                onClick={() => setShowDeleteConfirm(false)}
                 disabled={isSubmitting}
-                style={{
-                  padding: "7px 14px",
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  backgroundColor: "#059669",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                }}
               >
-                Publish
+                Keep review
               </button>
-            )}
-
-            {currentStatus !== "rejected" && (
               <button
+                className="review-button review-button-danger"
                 type="button"
-                onClick={() => handleStatusChange("rejected")}
+                onClick={handleDelete}
                 disabled={isSubmitting}
-                style={{
-                  padding: "7px 14px",
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  backgroundColor: "#FFFFFF",
-                  color: "#B91C1C",
-                  border: "1px solid #FCA5A5",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                }}
               >
-                Reject
+                {isSubmitting ? "Deleting…" : "Delete permanently"}
               </button>
-            )}
-
-            {currentStatus !== "pending" && (
-              <button
-                type="button"
-                onClick={() => handleStatusChange("pending")}
-                disabled={isSubmitting}
-                style={{
-                  padding: "7px 14px",
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  backgroundColor: "#FFFFFF",
-                  color: "#475569",
-                  border: "1px solid #CBD5E1",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                }}
-              >
-                Mark Pending
-              </button>
-            )}
+            </div>
           </div>
-        </div>
-      </ReviewDialog>
-
-      <style>{`
-        @keyframes slideInRight {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
-        }
-      `}</style>
-    </>
+        ) : (
+          <>
+            <div className="review-dialog-actions">
+              {currentStatus !== "published" && (
+                <button
+                  className="review-button review-button-primary"
+                  type="button"
+                  onClick={() => handleStatusChange("published")}
+                  disabled={isSubmitting}
+                >
+                  Publish review
+                </button>
+              )}
+              {currentStatus !== "rejected" && (
+                <button
+                  className="review-button"
+                  type="button"
+                  onClick={() => handleStatusChange("rejected")}
+                  disabled={isSubmitting}
+                >
+                  Reject review
+                </button>
+              )}
+              {currentStatus !== "pending" && (
+                <button
+                  className="review-button"
+                  type="button"
+                  onClick={() => handleStatusChange("pending")}
+                  disabled={isSubmitting}
+                >
+                  Mark pending
+                </button>
+              )}
+            </div>
+            <button
+              className="review-delete-link"
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={isSubmitting}
+            >
+              Delete review
+            </button>
+          </>
+        )}
+      </footer>
+    </ReviewDialog>
   );
 }

@@ -10,7 +10,7 @@ export function SummaryMetrics({ stats }: SummaryMetricsProps) {
     {
       label: "Total Reviews",
       value: stats.total,
-      subtext: "All time feedback",
+      subtext: "Across all statuses",
     },
     {
       label: "Published",
@@ -26,8 +26,9 @@ export function SummaryMetrics({ stats }: SummaryMetricsProps) {
     },
     {
       label: "Average Rating",
-      value: stats.averageRating > 0 ? `${stats.averageRating}` : "—",
-      subtext: stats.total > 0 ? "★ out of 5.0" : "No ratings yet",
+      value: stats.averageRating > 0 ? stats.averageRating.toFixed(1) : "—",
+      subtext:
+        stats.total > 0 ? "Across all review statuses" : "No ratings yet",
     },
   ];
 
@@ -48,8 +49,9 @@ export function SummaryMetrics({ stats }: SummaryMetricsProps) {
         <div
           key={item.label}
           style={{
-            padding: "14px 20px",
-            borderRight: index < items.length - 1 ? "1px solid #F1F5F9" : "none",
+            padding: "20px",
+            borderRight:
+              index < items.length - 1 ? "1px solid #F1F5F9" : "none",
             display: "flex",
             flexDirection: "column",
             gap: "2px",
@@ -68,7 +70,7 @@ export function SummaryMetrics({ stats }: SummaryMetricsProps) {
           </span>
           <div
             style={{
-              fontSize: "22px",
+              fontSize: "28px",
               fontWeight: 600,
               color: item.color || "#0F172A",
               letterSpacing: "-0.02em",
@@ -77,7 +79,7 @@ export function SummaryMetrics({ stats }: SummaryMetricsProps) {
           >
             {item.value}
           </div>
-          <span style={{ fontSize: "11px", color: "#94A3B8" }}>
+          <span style={{ fontSize: "11px", color: "#61666A" }}>
             {item.subtext}
           </span>
         </div>

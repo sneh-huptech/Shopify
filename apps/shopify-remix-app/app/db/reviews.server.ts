@@ -2,6 +2,10 @@ import { ObjectId, MongoServerError } from "mongodb";
 import { createHash } from "node:crypto";
 import { getDatabase } from "./mongodb.server";
 import { reviewPage } from "../review-input";
+import type {
+  ReviewMedia,
+  StoredReviewMedia,
+} from "../services/review-media.server";
 
 export type ReviewStatus = "pending" | "published" | "rejected";
 
@@ -25,7 +29,8 @@ export interface ReviewDocument {
   body: string;
   status: ReviewStatus;
   verifiedPurchase: boolean;
-  media: string[];
+  media: ReviewMedia[];
+  mediaData?: StoredReviewMedia[];
   source: "manual" | "storefront" | "import";
   createdAt: Date;
   updatedAt: Date;
@@ -33,6 +38,7 @@ export interface ReviewDocument {
 }
 
 export interface CreateReviewInput {
+  media?: StoredReviewMedia[];
   productId: string;
   productHandle: string;
   productTitle: string;
@@ -67,7 +73,11 @@ export interface ReviewStats {
 
 const COLLECTION_NAME = "reviews";
 
-export const REVIEW_STATUSES: ReviewStatus[] = ["pending", "published", "rejected"];
+export const REVIEW_STATUSES: ReviewStatus[] = [
+  "pending",
+  "published",
+  "rejected",
+];
 
 let indexesReady: Promise<unknown> | undefined;
 
@@ -78,7 +88,13 @@ export async function getReviewsCollection() {
     collection.createIndex({ shopDomain: 1, status: 1, createdAt: -1 }),
     collection.createIndex({ shopDomain: 1, productId: 1 }),
     collection.createIndex({ shopDomain: 1, "reviewer.email": 1 }),
-    collection.createIndex({ shopDomain: 1, submissionKey: 1 }, { unique: true, partialFilterExpression: { submissionKey: { $type: "string" } } }),
+    collection.createIndex(
+      { shopDomain: 1, submissionKey: 1 },
+      {
+        unique: true,
+        partialFilterExpression: { submissionKey: { $type: "string" } },
+      },
+    ),
   ]).catch((error) => {
     indexesReady = undefined;
     throw error;
@@ -91,19 +107,32 @@ export async function getReviewsCollection() {
 export async function deleteShopReviews(shopDomain: string) {
   const collection = await getReviewsCollection();
   await collection.deleteMany({ shopDomain });
-  await (await getDatabase()).collection("review_submission_limits").deleteMany({ shopDomain });
+  await (
+    await getDatabase()
+  )
+    .collection("review_submission_limits")
+    .deleteMany({ shopDomain });
 }
 
 /** Removes a customer's reviews in a shop (customers/redact). */
-export async function deleteCustomerReviews(shopDomain: string, email?: string) {
+export async function deleteCustomerReviews(
+  shopDomain: string,
+  email?: string,
+) {
   if (!email) return;
   const collection = await getReviewsCollection();
   await collection.deleteMany({
     shopDomain,
     "reviewer.email": email.trim().toLowerCase(),
   });
-  const emailHash = createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
-  await (await getDatabase()).collection("review_submission_limits").deleteMany({ shopDomain, emailHash });
+  const emailHash = createHash("sha256")
+    .update(email.trim().toLowerCase())
+    .digest("hex");
+  await (
+    await getDatabase()
+  )
+    .collection("review_submission_limits")
+    .deleteMany({ shopDomain, emailHash });
 }
 
 /**
@@ -111,7 +140,7 @@ export async function deleteCustomerReviews(shopDomain: string, email?: string) 
  */
 export async function createReview(
   shopDomain: string,
-  input: CreateReviewInput
+  input: CreateReviewInput,
 ): Promise<ReviewDocument> {
   const collection = await getReviewsCollection();
   const now = new Date();
@@ -132,7 +161,12 @@ export async function createReview(
     body: input.body.trim(),
     status: input.status || "pending",
     verifiedPurchase: input.verifiedPurchase ?? false,
-    media: [],
+    media: (input.media || []).map(({ id, type, size }) => ({
+      id,
+      type,
+      size,
+    })),
+    ...(input.media?.length ? { mediaData: input.media } : {}),
     source: input.source || "manual",
     createdAt: now,
     updatedAt: now,
@@ -148,11 +182,13 @@ export async function createReview(
  */
 export async function listReviews(
   shopDomain: string,
-  filter: ListReviewsFilter = {}
+  filter: ListReviewsFilter = {},
 ) {
   const collection = await getReviewsCollection();
   const requestedPage = reviewPage(filter.page);
-  const limit = Number.isInteger(filter.limit) ? Math.max(1, Math.min(50, filter.limit!)) : 15;
+  const limit = Number.isInteger(filter.limit)
+    ? Math.max(1, Math.min(50, filter.limit!))
+    : 15;
 
   const query: any = { shopDomain };
 
@@ -170,8 +206,11 @@ export async function listReviews(
 
   if (filter.search && filter.search.trim()) {
     const searchRegex = new RegExp(
-      filter.search.trim().slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-      "i"
+      filter.search
+        .trim()
+        .slice(0, 100)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      "i",
     );
     query.$or = [
       { "reviewer.name": searchRegex },
@@ -183,19 +222,36 @@ export async function listReviews(
 
   const [totalMatching, summary] = await Promise.all([
     collection.countDocuments(query),
-    collection.aggregate([
-      { $match: { shopDomain } },
-      { $group: {
-        _id: null, total: { $sum: 1 }, averageRating: { $avg: "$rating" },
-        published: { $sum: { $cond: [{ $eq: ["$status", "published"] }, 1, 0] } },
-        pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
-        rejected: { $sum: { $cond: [{ $eq: ["$status", "rejected"] }, 1, 0] } },
-      } },
-    ]).toArray(),
+    collection
+      .aggregate([
+        { $match: { shopDomain } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            averageRating: { $avg: "$rating" },
+            published: {
+              $sum: { $cond: [{ $eq: ["$status", "published"] }, 1, 0] },
+            },
+            pending: {
+              $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] },
+            },
+            rejected: {
+              $sum: { $cond: [{ $eq: ["$status", "rejected"] }, 1, 0] },
+            },
+          },
+        },
+      ])
+      .toArray(),
   ]);
   const totalPages = Math.ceil(totalMatching / limit) || 1;
   const page = Math.min(requestedPage, totalPages);
-  const rawReviews = await collection.find(query).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).toArray();
+  const rawReviews = await collection
+    .find(query, { projection: { mediaData: 0 } })
+    .sort({ createdAt: -1, _id: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .toArray();
 
   const reviews = rawReviews.map((r) => ({
     ...r,
@@ -224,7 +280,7 @@ export async function listReviews(
  */
 export async function getReview(
   shopDomain: string,
-  id: string
+  id: string,
 ): Promise<ReviewDocument | null> {
   if (!ObjectId.isValid(id)) return null;
   const collection = await getReviewsCollection();
@@ -242,13 +298,13 @@ export async function getReview(
 export async function updateReviewStatus(
   shopDomain: string,
   id: string,
-  status: ReviewStatus
+  status: ReviewStatus,
 ): Promise<boolean> {
   if (!ObjectId.isValid(id) || !REVIEW_STATUSES.includes(status)) return false;
   const collection = await getReviewsCollection();
   const result = await collection.updateOne(
     { _id: new ObjectId(id), shopDomain },
-    { $set: { status, updatedAt: new Date() } }
+    { $set: { status, updatedAt: new Date() } },
   );
   return result.matchedCount > 0;
 }
@@ -258,7 +314,7 @@ export async function updateReviewStatus(
  */
 export async function deleteReview(
   shopDomain: string,
-  id: string
+  id: string,
 ): Promise<boolean> {
   if (!ObjectId.isValid(id)) return false;
   const collection = await getReviewsCollection();
@@ -273,17 +329,26 @@ const PAGE_SIZE = 10;
 const HOUR = 60 * 60 * 1000;
 
 /** Published reviews + rating summary for one product. Never exposes email. */
-export async function listPublicReviews(shopDomain: string, productId: string, page = 1) {
+export async function listPublicReviews(
+  shopDomain: string,
+  productId: string,
+  page = 1,
+) {
   const collection = await getReviewsCollection();
   const match = { shopDomain, productId, status: "published" as const };
   const [rows, dist] = await Promise.all([
     collection
-      .find(match)
+      .find(match, { projection: { mediaData: 0 } })
       .sort({ createdAt: -1, _id: -1 })
       .skip((reviewPage(page) - 1) * PAGE_SIZE)
       .limit(PAGE_SIZE + 1)
       .toArray(),
-    collection.aggregate([{ $match: match }, { $group: { _id: "$rating", n: { $sum: 1 } } }]).toArray(),
+    collection
+      .aggregate([
+        { $match: match },
+        { $group: { _id: "$rating", n: { $sum: 1 } } },
+      ])
+      .toArray(),
   ]);
 
   const distribution = [0, 0, 0, 0, 0];
@@ -296,7 +361,11 @@ export async function listPublicReviews(shopDomain: string, productId: string, p
   }
 
   return {
-    stats: { count, average: count ? Number((sum / count).toFixed(1)) : 0, distribution },
+    stats: {
+      count,
+      average: count ? Number((sum / count).toFixed(1)) : 0,
+      distribution,
+    },
     reviews: rows.slice(0, PAGE_SIZE).map((r) => {
       const [first, ...rest] = r.reviewer.name.split(/\s+/);
       const last = rest.length ? ` ${rest[rest.length - 1][0]}.` : "";
@@ -307,26 +376,66 @@ export async function listPublicReviews(shopDomain: string, productId: string, p
         body: r.body,
         date: r.createdAt,
         variant: r.variantTitle || "",
+        reviewId: r._id.toString(),
+        media: r.media || [],
       };
     }),
     hasMore: rows.length > PAGE_SIZE,
   };
 }
 
+export async function getReviewMedia(
+  shopDomain: string,
+  reviewId: string,
+  mediaId: string,
+  includePending = false,
+) {
+  if (!ObjectId.isValid(reviewId) || !/^[a-f0-9-]{36}$/.test(mediaId))
+    return null;
+  const review = await (
+    await getReviewsCollection()
+  ).findOne(
+    {
+      _id: new ObjectId(reviewId),
+      shopDomain,
+      ...(!includePending ? { status: "published" as const } : {}),
+      "mediaData.id": mediaId,
+    },
+    { projection: { mediaData: { $elemMatch: { id: mediaId } } } },
+  );
+  return review?.mediaData?.[0] || null;
+}
+
 /** Storefront submission: pending review with atomic duplicate protection. */
 export async function createStorefrontReview(
   shopDomain: string,
-  input: CreateReviewInput
+  input: CreateReviewInput,
 ): Promise<ReviewDocument | "duplicate"> {
   const collection = await getReviewsCollection();
   const email = input.reviewer.email.trim().toLowerCase();
-  const duplicate = await collection.findOne({ shopDomain, "reviewer.email": email, productId: input.productId, body: input.body.trim(), createdAt: { $gt: new Date(Date.now() - 24 * HOUR) } });
+  const duplicate = await collection.findOne({
+    shopDomain,
+    "reviewer.email": email,
+    productId: input.productId,
+    body: input.body.trim(),
+    createdAt: { $gt: new Date(Date.now() - 24 * HOUR) },
+  });
   if (duplicate) return "duplicate";
-  const submissionKey = createHash("sha256").update(JSON.stringify([shopDomain, input.productId, email, input.body.trim()])).digest("hex");
+  const submissionKey = createHash("sha256")
+    .update(
+      JSON.stringify([shopDomain, input.productId, email, input.body.trim()]),
+    )
+    .digest("hex");
   try {
-    return await createReview(shopDomain, { ...input, status: "pending", source: "storefront", submissionKey });
+    return await createReview(shopDomain, {
+      ...input,
+      status: "pending",
+      source: "storefront",
+      submissionKey,
+    });
   } catch (error) {
-    if (error instanceof MongoServerError && error.code === 11000) return "duplicate";
+    if (error instanceof MongoServerError && error.code === 11000)
+      return "duplicate";
     throw error;
   }
 }
@@ -334,22 +443,54 @@ export async function createStorefrontReview(
 let limitsReady: Promise<unknown> | undefined;
 
 /** Shared counters run before product lookup. Email changes still consume the shop limit. */
-export async function allowStorefrontSubmission(shopDomain: string, email: string, now = Date.now()) {
-  const limits = (await getDatabase()).collection<{ _id: string; count: number; shopDomain: string; expiresAt: Date; emailHash?: string }>("review_submission_limits");
-  limitsReady ??= limits.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch((error) => { limitsReady = undefined; throw error; });
+export async function allowStorefrontSubmission(
+  shopDomain: string,
+  email: string,
+  now = Date.now(),
+) {
+  const limits = (await getDatabase()).collection<{
+    _id: string;
+    count: number;
+    shopDomain: string;
+    expiresAt: Date;
+    emailHash?: string;
+  }>("review_submission_limits");
+  limitsReady ??= limits
+    .createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+    .catch((error) => {
+      limitsReady = undefined;
+      throw error;
+    });
   await limitsReady;
   // shortcut: fixed windows permit a boundary burst; use a sliding window if real traffic needs finer limits.
-  for (const [subject, window, maximum] of [["shop", 60_000, 60], [email.trim().toLowerCase(), HOUR, 5]] as const) {
+  for (const [subject, window, maximum] of [
+    ["shop", 60_000, 60],
+    [email.trim().toLowerCase(), HOUR, 5],
+  ] as const) {
     const bucket = Math.floor(now / window);
-    const id = createHash("sha256").update(JSON.stringify([shopDomain, subject, window, bucket])).digest("hex");
+    const id = createHash("sha256")
+      .update(JSON.stringify([shopDomain, subject, window, bucket]))
+      .digest("hex");
     try {
       await limits.findOneAndUpdate(
         { _id: id, count: { $lt: maximum } },
-        { $inc: { count: 1 }, $setOnInsert: { shopDomain, expiresAt: new Date((bucket + 1) * window), ...(subject !== "shop" ? { emailHash: createHash("sha256").update(subject).digest("hex") } : {}) } },
-        { upsert: true }
+        {
+          $inc: { count: 1 },
+          $setOnInsert: {
+            shopDomain,
+            expiresAt: new Date((bucket + 1) * window),
+            ...(subject !== "shop"
+              ? {
+                  emailHash: createHash("sha256").update(subject).digest("hex"),
+                }
+              : {}),
+          },
+        },
+        { upsert: true },
       );
     } catch (error) {
-      if (error instanceof MongoServerError && error.code === 11000) return false;
+      if (error instanceof MongoServerError && error.code === 11000)
+        return false;
       throw error;
     }
   }

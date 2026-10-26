@@ -1,5 +1,6 @@
 FROM node:24-alpine
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl ffmpeg
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
 EXPOSE 3000
 

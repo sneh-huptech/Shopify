@@ -10,7 +10,7 @@
   {{ block.shopify_attributes }}
 >
   <header class="pr__head">
-    <h2 class="pr__title">{{ block.settings.heading }}</h2>
+    <div><p class="pr__eyebrow">Customer experiences</p><h2 class="pr__title">{{ block.settings.heading | escape }}</h2><p class="pr__muted">Feedback from people who tried this product.</p></div>
     <button type="button" class="pr__btn" data-pr-open>Write a review</button>
   </header>
 
@@ -22,7 +22,7 @@
   <button type="button" class="pr__btn pr__btn--ghost" data-pr-more hidden>Load more reviews</button>
 
   <dialog class="pr__dialog" data-pr-dialog aria-labelledby="pr-form-title-{{ block.id }}">
-    <form method="dialog" class="pr__form" data-pr-form novalidate>
+    <form method="dialog" class="pr__form" data-pr-form enctype="multipart/form-data" novalidate>
       <header class="pr__dhead">
         <div>
           <h3 id="pr-form-title-{{ block.id }}" class="pr__title">Write a review</h3>
@@ -37,18 +37,19 @@
           <div class="pr__stars">
             {%- for i in (1..5) reversed -%}
               <input type="radio" name="rating" id="pr-star-{{ block.id }}-{{ i }}" value="{{ i }}" required>
-              <label for="pr-star-{{ block.id }}-{{ i }}" title="{{ i }} star{% if i > 1 %}s{% endif %}"><span class="pr__sr">{{ i }} star{% if i > 1 %}s{% endif %}</span></label>
+              <label for="pr-star-{{ block.id }}-{{ i }}" title="{{ i }} star{% if i > 1 %}s{% endif %}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m12 2.8 2.85 5.78 6.38.93-4.62 4.5 1.09 6.35L12 17.36l-5.7 3 1.09-6.35-4.62-4.5 6.38-.93Z"/></svg><span class="pr__sr">{{ i }} star{% if i > 1 %}s{% endif %}</span></label>
             {%- endfor -%}
           </div>
           <span class="pr__muted" data-pr-rating-text aria-hidden="true"></span>
         </div>
       </fieldset>
 
-      <label class="pr__field">Title
+      <p class="pr__muted">Review details are required. Photos and videos are optional.</p>
+      <label class="pr__field">Review title
         <input type="text" name="title" maxlength="100" required autocomplete="off">
       </label>
       <label class="pr__field">Review
-        <textarea name="body" rows="6" minlength="10" maxlength="2000" required></textarea>
+        <textarea name="body" rows="5" minlength="10" maxlength="2000" required aria-describedby="pr-body-help-{{ block.id }}"></textarea><small id="pr-body-help-{{ block.id }}" class="pr__muted">10–2,000 characters. Tell us about your experience.</small>
       </label>
       <div class="pr__row">
         <label class="pr__field">Name
@@ -58,6 +59,12 @@
           <input type="email" name="email" maxlength="254" required autocomplete="email">
         </label>
       </div>
+
+      <label class="pr__field">Photos or videos <small class="pr__muted">Optional</small>
+        <input type="file" name="media" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" multiple data-pr-media aria-describedby="pr-media-help-{{ block.id }}">
+        <small id="pr-media-help-{{ block.id }}" class="pr__muted">Up to 3 files, 12 MB total. JPG, PNG or WebP: 3 MB each. MP4 or WebM: 8 MB each; first 30 seconds saved. Visible after approval.</small>
+      </label>
+      <div class="pr__media" data-pr-previews aria-label="Selected attachments"></div>
 
       <label hidden aria-hidden="true">Leave this field empty<input name="website" tabindex="-1" autocomplete="off"></label>
       <p class="pr__error" data-pr-error role="alert" hidden></p>
