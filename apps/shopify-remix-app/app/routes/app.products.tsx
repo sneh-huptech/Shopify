@@ -3,16 +3,18 @@ import { json } from "@remix-run/node";
 import { useLoaderData, Link } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
 import { getShopifyProducts } from "../services/products.server";
+import { ProductPagination } from "../components/ProductPagination";
 import { getReviewsCollection } from "../db/reviews.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
-  const products = await getShopifyProducts(admin, 50);
+  const catalog = await getShopifyProducts(admin, new URL(request.url).searchParams);
+  const products = catalog.nodes;
 
   const collection = await getReviewsCollection();
   const reviewCounts = await collection
     .aggregate([
-      { $match: { shopDomain: session.shop } },
+      { $match: { shopDomain: session.shop, productId: { $in: products.map((product) => product.id) } } },
       { $group: { _id: "$productId", count: { $sum: 1 }, avgRating: { $avg: "$rating" } } },
     ])
     .toArray();
@@ -30,11 +32,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     };
   });
 
-  return json({ products: productStats });
+  return json({ products: productStats, productPageInfo: catalog.pageInfo });
 };
 
 export default function ProductsPage() {
-  const { products } = useLoaderData<typeof loader>();
+  const { products, productPageInfo } = useLoaderData<typeof loader>();
 
   return (
     <div
@@ -63,6 +65,8 @@ export default function ProductsPage() {
           overflow: "hidden",
         }}
       >
+        <ProductPagination pageInfo={productPageInfo} />
+        <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
           <thead>
             <tr
@@ -128,6 +132,7 @@ export default function ProductsPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

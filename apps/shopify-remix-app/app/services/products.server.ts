@@ -1,71 +1,56 @@
+import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
+import { ReviewInputError } from "../review-input";
+
 export interface ShopifyProductItem {
   id: string;
   title: string;
   handle: string;
-  featuredImageUrl?: string;
-  variants: Array<{
-    id: string;
-    title: string;
-    price: string;
-  }>;
 }
 
-export async function getShopifyProducts(
-  admin: any,
-  first: number = 50
-): Promise<ShopifyProductItem[]> {
-  try {
-    const response = await admin.graphql(
-      `#graphql
-        query getProductsList($first: Int!) {
-          products(first: $first) {
-            edges {
-              node {
-                id
-                title
-                handle
-                featuredMedia {
-                  preview {
-                    image {
-                      url
-                    }
-                  }
-                }
-                variants(first: 10) {
-                  edges {
-                    node {
-                      id
-                      title
-                      price
-                    }
-                  }
-                }
-              }
-            }
-          }
+export interface ProductPageInfo {
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+  startCursor: string | null;
+  endCursor: string | null;
+}
+
+export async function getShopifyProducts(admin: Pick<AdminApiContext, "graphql">, params: URLSearchParams) {
+  const before = params.get("productsBefore");
+  const after = before ? null : params.get("productsAfter");
+  const response = await admin.graphql(
+    `#graphql
+      query reviewProducts($first: Int, $last: Int, $after: String, $before: String) {
+        products(first: $first, last: $last, after: $after, before: $before, sortKey: TITLE) {
+          nodes { id title handle }
+          pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
         }
-      `,
-      {
-        variables: { first },
-      }
-    );
+      }`,
+    { variables: { first: before ? null : 50, last: before ? 50 : null, after, before } }
+  );
+  const result = await response.json();
+  if (!result.data?.products) throw new Error("Products could not be loaded. Please try again.");
+  return result.data.products as { nodes: ShopifyProductItem[]; pageInfo: ProductPageInfo };
+}
 
-    const json = await response.json();
-    const edges = json?.data?.products?.edges || [];
-
-    return edges.map(({ node }: any) => ({
-      id: node.id,
-      title: node.title,
-      handle: node.handle,
-      featuredImageUrl: node.featuredMedia?.preview?.image?.url || "",
-      variants: (node.variants?.edges || []).map(({ node: v }: any) => ({
-        id: v.id,
-        title: v.title,
-        price: v.price,
-      })),
-    }));
-  } catch (error) {
-    console.error("[Shopify GraphQL] Failed to fetch products:", error);
-    return [];
-  }
+export async function getReviewProduct(admin: Pick<AdminApiContext, "graphql">, id: string, variantId?: string) {
+  if (!/^gid:\/\/shopify\/Product\/\d{1,20}$/.test(id)) throw new ReviewInputError("Invalid product.");
+  if (variantId && !/^gid:\/\/shopify\/ProductVariant\/\d{1,20}$/.test(variantId)) throw new ReviewInputError("Invalid variant.");
+  const response = await admin.graphql(
+    `#graphql
+      query reviewProduct($id: ID!, $variantId: ID!) {
+        product(id: $id) { id title handle }
+        productVariant(id: $variantId) { id title product { id } }
+      }`,
+    { variables: { id, variantId: variantId || "gid://shopify/ProductVariant/0" } }
+  );
+  const result = await response.json();
+  if (!result.data) throw new Error("Product details could not be loaded. Please try again.");
+  const product = result.data?.product as ShopifyProductItem | null;
+  const variant = result.data?.productVariant;
+  if (!product) throw new ReviewInputError("Product not found in this store.");
+  if (variantId && (!variant || variant.product.id !== product.id)) throw new ReviewInputError("Variant does not belong to this product.");
+  return {
+    productId: product.id, productTitle: product.title, productHandle: product.handle,
+    variantId: variantId || "", variantTitle: variantId && variant?.title !== "Default Title" ? variant.title : "",
+  };
 }

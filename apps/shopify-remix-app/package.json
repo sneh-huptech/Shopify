@@ -12,7 +12,7 @@
     "start": "remix-serve ./build/server/index.js",
     "docker-start": "npm run setup && npm run start",
     "setup": "prisma generate && prisma migrate deploy",
-    "test": "vite-node app/db/reviews.test.ts",
+    "test": "vite-node app/review-input.test.ts && vite-node app/services/products.test.ts && vite-node app/db/reviews.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint .",
     "shopify": "shopify",

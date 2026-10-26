@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { useLoaderData, useSubmit, useNavigation, useSearchParams } from "@remix-run/react";
+import { useLoaderData, useFetcher, useNavigation, useSearchParams } from "@remix-run/react";
 import { authenticate } from "../shopify.server";
 import {
   listReviews,
@@ -12,7 +12,9 @@ import {
   type ReviewDocument,
   type ReviewStatus,
 } from "../db/reviews.server";
-import { getShopifyProducts } from "../services/products.server";
+import { getShopifyProducts, getReviewProduct } from "../services/products.server";
+import { reviewInput, ReviewInputError, readReviewForm, type ReviewActionResult } from "../review-input";
+import { ProductPagination } from "../components/ProductPagination";
 import { StarRating } from "../components/StarRating";
 import { StatusBadge } from "../components/StatusBadge";
 import { SummaryMetrics } from "../components/SummaryMetrics";
@@ -38,12 +40,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       page,
       limit: 10,
     }),
-    getShopifyProducts(admin, 50),
+    getShopifyProducts(admin, url.searchParams),
   ]);
 
   return json({
     ...reviewsData,
-    products,
+    products: products.nodes,
+    productPageInfo: products.pageInfo,
     currentFilters: {
       status,
       rating,
@@ -54,98 +57,57 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  const formData = await request.formData();
-  const intent = formData.get("intent")?.toString();
-
-  if (intent === "create") {
-    const productId = formData.get("productId")?.toString() || "";
-    const productTitle = formData.get("productTitle")?.toString() || "Product";
-    const productHandle = formData.get("productHandle")?.toString() || "";
-    const rating = Number(formData.get("rating"));
-    const title = formData.get("title")?.toString() || "";
-    const body = formData.get("body")?.toString() || "";
-    const reviewerName = formData.get("reviewerName")?.toString() || "";
-    const reviewerEmail = formData.get("reviewerEmail")?.toString() || "";
-
-    if (!productId || !title.trim() || !body.trim() || !reviewerName.trim() || !reviewerEmail.trim()) {
-      return json({ success: false, error: "Please fill out all required fields." }, { status: 400 });
+  const { session, admin } = await authenticate.admin(request);
+  try {
+    const form = await readReviewForm(request);
+    const intent = String(form.get("intent") || "");
+    if (intent === "create") {
+      const input = reviewInput(form);
+      const product = await getReviewProduct(admin, String(form.get("productId") || ""));
+      await createReview(session.shop, { ...input, ...product, status: "pending", verifiedPurchase: false });
+      return json<ReviewActionResult>({ success: true, intent, message: "Review added successfully." });
     }
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      return json({ success: false, error: "Rating must be between 1 and 5." }, { status: 400 });
+    const reviewId = String(form.get("reviewId") || "");
+    if (intent === "update_status") {
+      const status = String(form.get("status") || "") as ReviewStatus;
+      if (!REVIEW_STATUSES.includes(status)) throw new ReviewInputError("Invalid review status.");
+      if (!await updateReviewStatus(session.shop, reviewId, status)) return json<ReviewActionResult>({ success: false, error: "Review not found. Refresh and try again." }, { status: 404 });
+      return json<ReviewActionResult>({ success: true, intent, reviewId, status, message: `Review marked ${status}.` });
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reviewerEmail.trim())) {
-      return json({ success: false, error: "Please enter a valid email address." }, { status: 400 });
+    if (intent === "delete") {
+      if (!await deleteReview(session.shop, reviewId)) return json<ReviewActionResult>({ success: false, error: "Review not found. Refresh and try again." }, { status: 404 });
+      return json<ReviewActionResult>({ success: true, intent, reviewId, message: "Review deleted successfully." });
     }
-
-    await createReview(session.shop, {
-      productId,
-      productTitle,
-      productHandle,
-      rating,
-      title,
-      body,
-      reviewer: {
-        name: reviewerName,
-        email: reviewerEmail,
-      },
-      status: "pending",
-      verifiedPurchase: false,
-    });
-
-    return json({ success: true, message: "Review added successfully!" });
+    throw new ReviewInputError("Unknown action.");
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    if (!(error instanceof ReviewInputError)) console.error("[Reviews] Save failed:", error instanceof Error ? error.name : "Unknown error");
+    return json<ReviewActionResult>({ success: false, error: error instanceof ReviewInputError ? error.message : "The change could not be saved. Please try again." }, { status: error instanceof ReviewInputError ? error.status : 503 });
   }
-
-  if (intent === "update_status") {
-    const reviewId = formData.get("reviewId")?.toString() || "";
-    const status = formData.get("status")?.toString() as ReviewStatus;
-
-    if (!reviewId || !REVIEW_STATUSES.includes(status)) {
-      return json({ success: false, error: "Missing parameters." }, { status: 400 });
-    }
-
-    const updated = await updateReviewStatus(session.shop, reviewId, status);
-    if (!updated) {
-      return json({ success: false, error: "Review not found." }, { status: 404 });
-    }
-    return json({ success: true, message: `Review status changed to ${status}.` });
-  }
-
-  if (intent === "delete") {
-    const reviewId = formData.get("reviewId")?.toString() || "";
-    if (!reviewId) {
-      return json({ success: false, error: "Missing review ID." }, { status: 400 });
-    }
-
-    const deleted = await deleteReview(session.shop, reviewId);
-    return json({ success: deleted, message: "Review deleted successfully." });
-  }
-
-  return json({ success: false, error: "Unknown action" }, { status: 400 });
 };
 
 export default function ReviewsPage() {
-  const { reviews, total, page, totalPages, stats, products, currentFilters } =
+  const { reviews, total, page, totalPages, stats, products, productPageInfo, currentFilters } =
     useLoaderData<typeof loader>();
-  const submit = useSubmit();
+  const moderation = useFetcher<ReviewActionResult>();
   const navigation = useNavigation();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [selectedReview, setSelectedReview] = useState<ReviewDocument | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [notice, setNotice] = useState("");
   const [searchInput, setSearchInput] = useState(currentFilters.search || "");
 
   const isLoading = navigation.state === "loading";
 
-  // Update selected review if data changes
+  const closeAddModal = useCallback(() => setIsAddModalOpen(false), []);
+  const closeDrawer = useCallback(() => setSelectedReview(null), []);
+  const reviewCreated = useCallback(() => { setIsAddModalOpen(false); setNotice("Review added and awaiting moderation."); }, []);
+  const reviewDeleted = useCallback(() => { setSelectedReview(null); setNotice("Review deleted successfully."); }, []);
   useEffect(() => {
-    if (selectedReview) {
-      const updated = reviews.find(
-        (r) => (r.id || (r._id as any)?.toString()) === (selectedReview.id || (selectedReview._id as any)?.toString())
-      );
-      if (updated) setSelectedReview(updated as any);
-    }
+    setSelectedReview((current) => current ? (reviews.find((review) => review.id === current.id) as unknown as ReviewDocument) || current : null);
   }, [reviews]);
+  useEffect(() => { setSearchInput(currentFilters.search); }, [currentFilters.search]);
 
   const handleTabChange = (status: string) => {
     const next = new URLSearchParams(searchParams);
@@ -193,7 +155,8 @@ export default function ReviewsPage() {
 
   const handleQuickStatus = (reviewId: string, status: ReviewStatus, e: React.MouseEvent) => {
     e.stopPropagation();
-    submit(
+    setNotice("");
+    moderation.submit(
       { intent: "update_status", reviewId, status },
       { method: "post" }
     );
@@ -274,6 +237,9 @@ export default function ReviewsPage() {
         </button>
       </div>
 
+      <div role={!notice && moderation.data?.error ? "alert" : "status"} aria-live="polite">
+        {moderation.state !== "idle" ? "Saving review status…" : notice || moderation.data?.error || moderation.data?.message}
+      </div>
       {/* Summary Metrics */}
       <SummaryMetrics stats={stats} />
 
@@ -387,6 +353,7 @@ export default function ReviewsPage() {
               </span>
               <input
                 type="text"
+                aria-label="Search reviews, customers, products"
                 placeholder="Search reviews, customers, products..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
@@ -408,6 +375,7 @@ export default function ReviewsPage() {
           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
             {/* Rating Filter */}
             <select
+              aria-label="Filter reviews by rating"
               value={currentFilters.rating.toString()}
               onChange={(e) => handleRatingChange(e.target.value)}
               style={{
@@ -430,6 +398,7 @@ export default function ReviewsPage() {
 
             {/* Product Filter */}
             <select
+              aria-label="Filter reviews by product"
               value={currentFilters.productId}
               onChange={(e) => handleProductChange(e.target.value)}
               style={{
@@ -444,6 +413,7 @@ export default function ReviewsPage() {
               }}
             >
               <option value="all">All Products</option>
+              {currentFilters.productId !== "all" && !products.some((product) => product.id === currentFilters.productId) && <option value={currentFilters.productId}>Selected product</option>}
               {products.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.title}
@@ -472,6 +442,7 @@ export default function ReviewsPage() {
           </div>
         </div>
 
+        <ProductPagination pageInfo={productPageInfo} />
         {/* Loading Overlay or Table */}
         <div style={{ position: "relative", minHeight: "260px" }}>
           {isLoading && (
@@ -624,7 +595,7 @@ export default function ReviewsPage() {
                         {/* Reviewer */}
                         <td style={{ padding: "12px 16px", verticalAlign: "middle" }}>
                           <div style={{ fontWeight: 600, color: "#0F172A" }}>
-                            {rev.reviewer.name}
+                            <button type="button" onClick={() => setSelectedReview(rev)} aria-label={`Open review by ${rev.reviewer.name}`} style={{ font: "inherit", color: "inherit", background: "none", border: 0, padding: 0, textDecoration: "underline", cursor: "pointer" }}>{rev.reviewer.name}</button>
                           </div>
                           <div style={{ fontSize: "12px", color: "#64748B" }}>
                             {rev.reviewer.email}
@@ -704,6 +675,7 @@ export default function ReviewsPage() {
                             {rev.status !== "published" && (
                               <button
                                 type="button"
+                                disabled={moderation.state !== "idle"}
                                 title="Publish"
                                 onClick={(e) =>
                                   handleQuickStatus(
@@ -730,6 +702,7 @@ export default function ReviewsPage() {
                             {rev.status !== "rejected" && (
                               <button
                                 type="button"
+                                disabled={moderation.state !== "idle"}
                                 title="Reject"
                                 onClick={(e) =>
                                   handleQuickStatus(
@@ -837,19 +810,8 @@ export default function ReviewsPage() {
         )}
       </div>
 
-      {/* Review Detail Drawer */}
-      <ReviewDrawer
-        review={selectedReview}
-        isOpen={Boolean(selectedReview)}
-        onClose={() => setSelectedReview(null)}
-      />
-
-      {/* Add Review Modal */}
-      <AddReviewModal
-        products={products}
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-      />
+      {selectedReview && <ReviewDrawer key={selectedReview.id} review={selectedReview} onClose={closeDrawer} onDeleted={reviewDeleted} />}
+      {isAddModalOpen && <AddReviewModal products={products} productPageInfo={productPageInfo} onClose={closeAddModal} onCreated={reviewCreated} />}
     </div>
   );
 }

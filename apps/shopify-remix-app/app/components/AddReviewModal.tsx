@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from "react";
 import { useFetcher } from "@remix-run/react";
+import { reviewInput } from "../review-input";
 import { StarRating } from "./StarRating";
-import type { ShopifyProductItem } from "../services/products.server";
+import { ReviewDialog } from "./ReviewDialog";
+import { ProductPagination } from "./ProductPagination";
+import type { ProductPageInfo, ShopifyProductItem } from "../services/products.server";
 
 interface AddReviewModalProps {
   products: ShopifyProductItem[];
-  isOpen: boolean;
+  productPageInfo: ProductPageInfo;
   onClose: () => void;
+  onCreated: () => void;
 }
 
-export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProps) {
+export function AddReviewModal({ products, productPageInfo, onClose, onCreated }: AddReviewModalProps) {
   const fetcher = useFetcher<{ success?: boolean; error?: string }>();
 
   const [productId, setProductId] = useState("");
@@ -18,92 +22,46 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
   const [body, setBody] = useState("");
   const [reviewerName, setReviewerName] = useState("");
   const [reviewerEmail, setReviewerEmail] = useState("");
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState("");
 
   const isSubmitting = fetcher.state !== "idle";
 
   // Pre-select first product if available
   useEffect(() => {
-    if (products.length > 0 && !productId) {
-      setProductId(products[0].id);
+    if (!products.some((product) => product.id === productId)) {
+      setProductId(products[0]?.id || "");
     }
   }, [products, productId]);
 
   // Close on success
   useEffect(() => {
-    if (fetcher.data?.success) {
-      setTitle("");
-      setBody("");
-      setReviewerName("");
-      setReviewerEmail("");
-      setRating(5);
-      setErrors({});
-      onClose();
+    if (fetcher.state === "idle" && fetcher.data?.success) {
+      onCreated();
     }
-  }, [fetcher.data, onClose]);
+  }, [fetcher.state, fetcher.data, onCreated]);
 
-  if (!isOpen) return null;
-
-  const validate = () => {
-    const newErrors: Record<string, string> = {};
-    if (!productId) newErrors.productId = "Please select a product.";
-    if (!rating || rating < 1) newErrors.rating = "Please select a star rating.";
-    if (!title.trim()) newErrors.title = "Review headline is required.";
-    if (!body.trim()) newErrors.body = "Review feedback text is required.";
-    if (!reviewerName.trim()) newErrors.reviewerName = "Customer name is required.";
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!reviewerEmail.trim()) {
-      newErrors.reviewerEmail = "Customer email is required.";
-    } else if (!emailRegex.test(reviewerEmail.trim())) {
-      newErrors.reviewerEmail = "Please enter a valid email address.";
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData();
+    for (const [key, value] of Object.entries({ intent: "create", productId, rating: String(rating), title, body, name: reviewerName, email: reviewerEmail })) form.set(key, value);
+    try {
+      if (!productId) throw new Error("Please select a product.");
+      reviewInput(form);
+    } catch (error) {
+      setFormError((error as Error).message);
+      return;
     }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validate()) return;
-
-    const selectedProduct = products.find((p) => p.id === productId);
-
-    fetcher.submit(
-      {
-        intent: "create",
-        productId,
-        productTitle: selectedProduct?.title || "Product",
-        productHandle: selectedProduct?.handle || "",
-        rating: rating.toString(),
-        title,
-        body,
-        reviewerName,
-        reviewerEmail,
-      },
-      { method: "post" }
-    );
+    setFormError("");
+    fetcher.submit(form, { method: "post" });
   };
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
+      <ReviewDialog labelledBy="add-review-title" busy={isSubmitting} onClose={onClose}
         style={{
           position: "fixed",
           inset: 0,
-          backgroundColor: "rgba(15, 23, 42, 0.5)",
-          backdropFilter: "blur(2px)",
-          zIndex: 998,
-        }}
-      />
-
-      {/* Modal Dialog */}
-      <div
-        style={{
-          position: "fixed",
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
+          margin: "auto",
           width: "90%",
           maxWidth: "520px",
           backgroundColor: "#FFFFFF",
@@ -127,7 +85,7 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
           }}
         >
           <div>
-            <h2 style={{ fontSize: "16px", fontWeight: 600, color: "#0F172A", margin: 0 }}>
+            <h2 id="add-review-title" style={{ fontSize: "16px", fontWeight: 600, color: "#0F172A", margin: 0 }}>
               Add Customer Review
             </h2>
             <p style={{ fontSize: "13px", color: "#64748B", margin: "2px 0 0 0" }}>
@@ -137,6 +95,8 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
           <button
             type="button"
             onClick={onClose}
+            disabled={isSubmitting}
+            aria-label="Close add review"
             style={{
               background: "none",
               border: "none",
@@ -153,8 +113,9 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} style={{ overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: "16px" }}>
-          {fetcher.data?.error && (
-            <div
+          <fieldset disabled={isSubmitting} style={{ display: "contents", border: 0, padding: 0, margin: 0 }}>
+          {(formError || fetcher.data?.error) && (
+            <div role="alert"
               style={{
                 padding: "10px 14px",
                 backgroundColor: "#FEF2F2",
@@ -164,23 +125,23 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
                 fontSize: "13px",
               }}
             >
-              {fetcher.data.error}
+              {formError || fetcher.data?.error}
             </div>
           )}
 
           {/* Product Select */}
           <div>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "4px" }}>
+            <label htmlFor="review-product" style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "4px" }}>
               Product *
             </label>
-            <select
+            <select id="review-product"
               value={productId}
               onChange={(e) => setProductId(e.target.value)}
               style={{
                 width: "100%",
                 padding: "8px 12px",
                 borderRadius: "6px",
-                border: `1px solid ${errors.productId ? "#EF4444" : "#CBD5E1"}`,
+                border: "1px solid #CBD5E1",
                 fontSize: "14px",
                 color: "#0F172A",
                 backgroundColor: "#FFFFFF",
@@ -194,11 +155,7 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
                 </option>
               ))}
             </select>
-            {errors.productId && (
-              <span style={{ fontSize: "12px", color: "#DC2626", marginTop: "2px", display: "block" }}>
-                {errors.productId}
-              </span>
-            )}
+            <ProductPagination pageInfo={productPageInfo} />
           </div>
 
           {/* Rating */}
@@ -206,26 +163,22 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
             <label style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "6px" }}>
               Rating *
             </label>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
               <StarRating value={rating} interactive size="lg" onChange={setRating} />
               <span style={{ fontSize: "13px", fontWeight: 500, color: "#475569" }}>
                 {rating} of 5 stars
               </span>
             </div>
-            {errors.rating && (
-              <span style={{ fontSize: "12px", color: "#DC2626", marginTop: "2px", display: "block" }}>
-                {errors.rating}
-              </span>
-            )}
           </div>
 
           {/* Review Title */}
           <div>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "4px" }}>
+            <label htmlFor="review-title" style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "4px" }}>
               Review Title / Headline *
             </label>
             <input
               type="text"
+              id="review-title" maxLength={100} required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Exceeded expectations! Very comfortable."
@@ -233,26 +186,22 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
                 width: "100%",
                 padding: "8px 12px",
                 borderRadius: "6px",
-                border: `1px solid ${errors.title ? "#EF4444" : "#CBD5E1"}`,
+                border: "1px solid #CBD5E1",
                 fontSize: "14px",
                 color: "#0F172A",
                 outline: "none",
                 boxSizing: "border-box",
               }}
             />
-            {errors.title && (
-              <span style={{ fontSize: "12px", color: "#DC2626", marginTop: "2px", display: "block" }}>
-                {errors.title}
-              </span>
-            )}
           </div>
 
           {/* Review Body */}
           <div>
-            <label style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "4px" }}>
+            <label htmlFor="review-body" style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "4px" }}>
               Review Feedback *
             </label>
             <textarea
+              id="review-body" minLength={10} maxLength={2000} required
               rows={3}
               value={body}
               onChange={(e) => setBody(e.target.value)}
@@ -261,7 +210,7 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
                 width: "100%",
                 padding: "8px 12px",
                 borderRadius: "6px",
-                border: `1px solid ${errors.body ? "#EF4444" : "#CBD5E1"}`,
+                border: "1px solid #CBD5E1",
                 fontSize: "14px",
                 color: "#0F172A",
                 outline: "none",
@@ -269,21 +218,17 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
                 boxSizing: "border-box",
               }}
             />
-            {errors.body && (
-              <span style={{ fontSize: "12px", color: "#DC2626", marginTop: "2px", display: "block" }}>
-                {errors.body}
-              </span>
-            )}
           </div>
 
           {/* Customer Name & Email */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <div>
-              <label style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "4px" }}>
+              <label htmlFor="review-name" style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "4px" }}>
                 Customer Name *
               </label>
               <input
                 type="text"
+                id="review-name" maxLength={60} required
                 value={reviewerName}
                 onChange={(e) => setReviewerName(e.target.value)}
                 placeholder="Jane Doe"
@@ -291,26 +236,22 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
                   width: "100%",
                   padding: "8px 12px",
                   borderRadius: "6px",
-                  border: `1px solid ${errors.reviewerName ? "#EF4444" : "#CBD5E1"}`,
+                  border: "1px solid #CBD5E1",
                   fontSize: "14px",
                   color: "#0F172A",
                   outline: "none",
                   boxSizing: "border-box",
                 }}
               />
-              {errors.reviewerName && (
-                <span style={{ fontSize: "12px", color: "#DC2626", marginTop: "2px", display: "block" }}>
-                  {errors.reviewerName}
-                </span>
-              )}
             </div>
 
             <div>
-              <label style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "4px" }}>
+              <label htmlFor="review-email" style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#334155", marginBottom: "4px" }}>
                 Customer Email *
               </label>
               <input
                 type="email"
+                id="review-email" maxLength={254} required
                 value={reviewerEmail}
                 onChange={(e) => setReviewerEmail(e.target.value)}
                 placeholder="jane@example.com"
@@ -318,18 +259,13 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
                   width: "100%",
                   padding: "8px 12px",
                   borderRadius: "6px",
-                  border: `1px solid ${errors.reviewerEmail ? "#EF4444" : "#CBD5E1"}`,
+                  border: "1px solid #CBD5E1",
                   fontSize: "14px",
                   color: "#0F172A",
                   outline: "none",
                   boxSizing: "border-box",
                 }}
               />
-              {errors.reviewerEmail && (
-                <span style={{ fontSize: "12px", color: "#DC2626", marginTop: "2px", display: "block" }}>
-                  {errors.reviewerEmail}
-                </span>
-              )}
             </div>
           </div>
 
@@ -379,8 +315,9 @@ export function AddReviewModal({ products, isOpen, onClose }: AddReviewModalProp
               {isSubmitting ? "Saving..." : "Save Review"}
             </button>
           </div>
+          </fieldset>
         </form>
-      </div>
+      </ReviewDialog>
     </>
   );
 }

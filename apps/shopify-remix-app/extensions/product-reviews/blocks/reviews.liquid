@@ -21,11 +21,11 @@
   <ul class="pr__list" data-pr-list></ul>
   <button type="button" class="pr__btn pr__btn--ghost" data-pr-more hidden>Load more reviews</button>
 
-  <dialog class="pr__dialog" data-pr-dialog aria-labelledby="pr-form-title">
+  <dialog class="pr__dialog" data-pr-dialog aria-labelledby="pr-form-title-{{ block.id }}">
     <form method="dialog" class="pr__form" data-pr-form novalidate>
       <header class="pr__dhead">
         <div>
-          <h3 id="pr-form-title" class="pr__title">Write a review</h3>
+          <h3 id="pr-form-title-{{ block.id }}" class="pr__title">Write a review</h3>
           <p class="pr__muted">{{ product.title | escape }}</p>
         </div>
         <button type="button" class="pr__x" data-pr-close aria-label="Close">&times;</button>
@@ -36,8 +36,8 @@
         <div class="pr__starrow">
           <div class="pr__stars">
             {%- for i in (1..5) reversed -%}
-              <input type="radio" name="rating" id="pr-star-{{ i }}" value="{{ i }}" required>
-              <label for="pr-star-{{ i }}" title="{{ i }} star{% if i > 1 %}s{% endif %}"><span class="pr__sr">{{ i }} star{% if i > 1 %}s{% endif %}</span></label>
+              <input type="radio" name="rating" id="pr-star-{{ block.id }}-{{ i }}" value="{{ i }}" required>
+              <label for="pr-star-{{ block.id }}-{{ i }}" title="{{ i }} star{% if i > 1 %}s{% endif %}"><span class="pr__sr">{{ i }} star{% if i > 1 %}s{% endif %}</span></label>
             {%- endfor -%}
           </div>
           <span class="pr__muted" data-pr-rating-text aria-hidden="true"></span>
@@ -48,7 +48,7 @@
         <input type="text" name="title" maxlength="100" required autocomplete="off">
       </label>
       <label class="pr__field">Review
-        <textarea name="body" rows="6"minlength="10" maxlength="2000" required></textarea>
+        <textarea name="body" rows="6" minlength="10" maxlength="2000" required></textarea>
       </label>
       <div class="pr__row">
         <label class="pr__field">Name
@@ -59,6 +59,7 @@
         </label>
       </div>
 
+      <label hidden aria-hidden="true">Leave this field empty<input name="website" tabindex="-1" autocomplete="off"></label>
       <p class="pr__error" data-pr-error role="alert" hidden></p>
       <p class="pr__ok" data-pr-ok role="status" hidden>Thank you! Your review will appear once it has been approved.</p>
 

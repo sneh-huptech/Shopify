@@ -48,3 +48,11 @@ git --git-dir=.repo-backups/shopify-remix-app.git --work-tree=apps/shopify-remix
 ```
 
 The root preservation commit captures the existing source before stabilization. Backups, local secrets, installed dependencies, and generated builds are deliberately excluded from commits.
+
+## Review workflow safeguards
+
+Both merchant and storefront submissions use the same field rules: ratings from 1–5, a title up to 100 characters, a review of 10–2000 characters, a name up to 60 characters, and a valid email up to 254 characters. Form bodies are capped at 16 KiB. Product and variant details are checked against the authenticated store's Shopify catalog.
+
+Storefront attempts are limited to five per email per hour and 60 per store per minute, using shared MongoDB counters before product lookup. These are fixed windows, so short bursts around a boundary are possible. Identical storefront reviews (store, product, normalized email, and trimmed body) cannot be inserted concurrently or resubmitted while the protected review remains stored. Existing older reviews retain their 24-hour duplicate check.
+
+`npm test` covers field/body validation, catalog cursor handling, product/variant validation, store isolation, moderation and public visibility, deletion, pagination, concurrent duplicates, and concurrent submission limits. Live acceptance still requires a running app preview, Shopify admin access, and the Product Reviews block enabled on a development product template.

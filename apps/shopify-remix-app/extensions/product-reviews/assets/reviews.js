@@ -1,11 +1,13 @@
-// Scoped to [data-pr-root]; no globals. Uses textContent only, so review text can never inject HTML.
-document.querySelectorAll('[data-pr-root]').forEach((root) => {
+// Each block initializes once. Review text uses textContent, never HTML.
+function initializeReviews() {
+document.querySelectorAll('[data-pr-root]:not([data-pr-ready])').forEach((root) => {
+  root.dataset.prReady = 'true';
   const $ = (s) => root.querySelector(s);
   const { endpoint, productId } = root.dataset;
   const list = $('[data-pr-list]'), more = $('[data-pr-more]'), summary = $('[data-pr-summary]');
   const dialog = $('[data-pr-dialog]'), form = $('[data-pr-form]');
   const err = $('[data-pr-error]'), ok = $('[data-pr-ok]'), submit = $('[data-pr-submit]');
-  let page = 1;
+  let page = 0;
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -46,20 +48,25 @@ document.querySelectorAll('[data-pr-root]').forEach((root) => {
 
   async function load() {
     more.disabled = true;
+    const nextPage = page + 1;
     try {
-      const res = await fetch(`${endpoint}?productId=${productId}&page=${page}`);
+      const res = await fetch(`${endpoint}?productId=${productId}&page=${nextPage}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
-      if (page === 1) renderSummary(data.stats);
+      if (nextPage === 1) renderSummary(data.stats);
       list.append(...data.reviews.map(renderReview));
       more.hidden = !data.hasMore;
+      more.textContent = 'Load more reviews';
+      page = nextPage;
     } catch {
-      if (page === 1) summary.replaceChildren(el('p', 'pr__muted', 'Reviews could not be loaded right now.'));
+      if (page === 0) summary.replaceChildren(el('p', 'pr__muted', 'Reviews could not be loaded right now.'));
+      more.hidden = false;
+      more.textContent = 'Could not load reviews. Retry';
     }
     more.disabled = false;
   }
 
-  more.addEventListener('click', () => { page += 1; load(); });
+  more.addEventListener('click', load);
   $('[data-pr-open]').addEventListener('click', () => { ok.hidden = true; dialog.showModal(); });
   $('[data-pr-close]').addEventListener('click', () => dialog.close());
 
@@ -97,3 +104,9 @@ document.querySelectorAll('[data-pr-root]').forEach((root) => {
 
   load();
 });
+}
+initializeReviews();
+if (!window.productReviewsInitialized) {
+  window.productReviewsInitialized = true;
+  document.addEventListener('shopify:section:load', initializeReviews);
+}

@@ -38,6 +38,10 @@ export function StarRating({
           <button
             key={starNumber}
             type="button"
+            role={interactive ? "radio" : undefined}
+            aria-checked={interactive ? starNumber === value : undefined}
+            aria-label={`${starNumber} ${starNumber === 1 ? "star" : "stars"}`}
+            data-rating={starNumber}
             disabled={!interactive}
             onClick={() => interactive && onChange && onChange(starNumber)}
             onMouseEnter={() => interactive && setHoverRating(starNumber)}
@@ -46,6 +50,8 @@ export function StarRating({
               background: "none",
               border: "none",
               padding: 0,
+              minWidth: interactive ? "44px" : undefined,
+              minHeight: interactive ? "44px" : undefined,
               cursor: interactive ? "pointer" : "default",
               display: "inline-flex",
               alignItems: "center",
@@ -54,7 +60,19 @@ export function StarRating({
               transition: "transform 120ms ease, color 120ms ease",
               transform: interactive && hoverRating === starNumber ? "scale(1.15)" : "scale(1)",
             }}
-            tabIndex={interactive ? 0 : -1}
+            tabIndex={interactive && starNumber === (value || 1) ? 0 : -1}
+            onKeyDown={(event) => {
+              if (!interactive || !onChange) return;
+              let next = starNumber;
+              if (["ArrowRight", "ArrowUp"].includes(event.key)) next = starNumber === max ? 1 : starNumber + 1;
+              else if (["ArrowLeft", "ArrowDown"].includes(event.key)) next = starNumber === 1 ? max : starNumber - 1;
+              else if (event.key === "Home") next = 1;
+              else if (event.key === "End") next = max;
+              else return;
+              event.preventDefault();
+              onChange(next);
+              event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-rating="${next}"]`)?.focus();
+            }}
           >
             <svg
               width={pixelSize}

@@ -1,20 +1,28 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useFetcher } from "@remix-run/react";
+import { ReviewDialog } from "./ReviewDialog";
+import type { ReviewActionResult } from "../review-input";
 import { StarRating } from "./StarRating";
 import { StatusBadge } from "./StatusBadge";
 import type { ReviewDocument } from "../db/reviews.server";
 
 interface ReviewDrawerProps {
-  review: ReviewDocument | null;
-  isOpen: boolean;
+  review: ReviewDocument;
   onClose: () => void;
+  onDeleted: () => void;
 }
 
-export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
-  const fetcher = useFetcher();
+export function ReviewDrawer({ review, onClose, onDeleted }: ReviewDrawerProps) {
+  const fetcher = useFetcher<ReviewActionResult>();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [currentStatus, setCurrentStatus] = useState(review.status);
 
-  if (!isOpen || !review) return null;
+  useEffect(() => { setCurrentStatus(review.status); }, [review.status]);
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.success && fetcher.data.intent === "delete") onDeleted();
+    if (fetcher.state === "idle" && fetcher.data?.success && fetcher.data.status) setCurrentStatus(fetcher.data.status);
+  }, [fetcher.state, fetcher.data, onDeleted]);
 
   const isSubmitting = fetcher.state !== "idle";
 
@@ -37,8 +45,6 @@ export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
       },
       { method: "post" }
     );
-    setShowDeleteConfirm(false);
-    onClose();
   };
 
   const formattedDate = new Date(review.createdAt).toLocaleDateString("en-US", {
@@ -51,26 +57,15 @@ export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{
-          position: "fixed",
-          inset: 0,
-          backgroundColor: "rgba(15, 23, 42, 0.4)",
-          backdropFilter: "blur(2px)",
-          zIndex: 998,
-          transition: "opacity 150ms ease",
-        }}
-      />
-
-      {/* Drawer Panel */}
-      <div
+      <ReviewDialog labelledBy="review-details-title" busy={isSubmitting} onClose={onClose}
         style={{
           position: "fixed",
           top: 0,
           right: 0,
           bottom: 0,
+          margin: "0 0 0 auto",
+          height: "100dvh",
+          maxHeight: "100dvh",
           width: "100%",
           maxWidth: "480px",
           backgroundColor: "#FFFFFF",
@@ -92,14 +87,16 @@ export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <h2 style={{ fontSize: "16px", fontWeight: 600, color: "#0F172A", margin: 0 }}>
+            <h2 id="review-details-title" style={{ fontSize: "16px", fontWeight: 600, color: "#0F172A", margin: 0 }}>
               Review Details
             </h2>
-            <StatusBadge status={review.status} />
+            <StatusBadge status={currentStatus} />
           </div>
           <button
             type="button"
             onClick={onClose}
+            disabled={isSubmitting}
+            aria-label="Close review details"
             style={{
               background: "none",
               border: "none",
@@ -118,6 +115,11 @@ export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
           </button>
         </div>
 
+        {(isSubmitting || fetcher.data?.error || fetcher.data?.message) && (
+          <div role={fetcher.data?.error ? "alert" : "status"} aria-live="polite" style={{ padding: "12px 20px", backgroundColor: fetcher.data?.error ? "#FEF2F2" : "#F8FAFC", color: fetcher.data?.error ? "#991B1B" : "#334155" }}>
+            {isSubmitting ? "Saving review…" : fetcher.data?.error || fetcher.data?.message}
+          </div>
+        )}
         {/* Content Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: "20px" }}>
           {/* Review Content Card */}
@@ -233,6 +235,7 @@ export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
                 <button
                   type="button"
                   onClick={() => setShowDeleteConfirm(false)}
+                  disabled={isSubmitting}
                   style={{
                     padding: "6px 12px",
                     fontSize: "12px",
@@ -260,7 +263,7 @@ export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
                     cursor: "pointer",
                   }}
                 >
-                  Confirm Delete
+                  {isSubmitting ? "Deleting…" : "Confirm Delete"}
                 </button>
               </div>
             </div>
@@ -297,7 +300,7 @@ export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
           </button>
 
           <div style={{ display: "flex", gap: "8px" }}>
-            {review.status !== "published" && (
+            {currentStatus !== "published" && (
               <button
                 type="button"
                 onClick={() => handleStatusChange("published")}
@@ -317,7 +320,7 @@ export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
               </button>
             )}
 
-            {review.status !== "rejected" && (
+            {currentStatus !== "rejected" && (
               <button
                 type="button"
                 onClick={() => handleStatusChange("rejected")}
@@ -337,7 +340,7 @@ export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
               </button>
             )}
 
-            {review.status !== "pending" && (
+            {currentStatus !== "pending" && (
               <button
                 type="button"
                 onClick={() => handleStatusChange("pending")}
@@ -358,7 +361,7 @@ export function ReviewDrawer({ review, isOpen, onClose }: ReviewDrawerProps) {
             )}
           </div>
         </div>
-      </div>
+      </ReviewDialog>
 
       <style>{`
         @keyframes slideInRight {

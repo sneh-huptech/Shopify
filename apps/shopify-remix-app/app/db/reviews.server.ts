@@ -1,5 +1,7 @@
-import { ObjectId } from "mongodb";
+import { ObjectId, MongoServerError } from "mongodb";
+import { createHash } from "node:crypto";
 import { getDatabase } from "./mongodb.server";
+import { reviewPage } from "../review-input";
 
 export type ReviewStatus = "pending" | "published" | "rejected";
 
@@ -27,6 +29,7 @@ export interface ReviewDocument {
   source: "manual" | "storefront" | "import";
   createdAt: Date;
   updatedAt: Date;
+  submissionKey?: string;
 }
 
 export interface CreateReviewInput {
@@ -42,6 +45,7 @@ export interface CreateReviewInput {
   status?: ReviewStatus;
   source?: ReviewDocument["source"];
   verifiedPurchase?: boolean;
+  submissionKey?: string;
 }
 
 export interface ListReviewsFilter {
@@ -74,6 +78,7 @@ export async function getReviewsCollection() {
     collection.createIndex({ shopDomain: 1, status: 1, createdAt: -1 }),
     collection.createIndex({ shopDomain: 1, productId: 1 }),
     collection.createIndex({ shopDomain: 1, "reviewer.email": 1 }),
+    collection.createIndex({ shopDomain: 1, submissionKey: 1 }, { unique: true, partialFilterExpression: { submissionKey: { $type: "string" } } }),
   ]).catch((error) => {
     indexesReady = undefined;
     throw error;
@@ -86,6 +91,7 @@ export async function getReviewsCollection() {
 export async function deleteShopReviews(shopDomain: string) {
   const collection = await getReviewsCollection();
   await collection.deleteMany({ shopDomain });
+  await (await getDatabase()).collection("review_submission_limits").deleteMany({ shopDomain });
 }
 
 /** Removes a customer's reviews in a shop (customers/redact). */
@@ -96,6 +102,8 @@ export async function deleteCustomerReviews(shopDomain: string, email?: string) 
     shopDomain,
     "reviewer.email": email.trim().toLowerCase(),
   });
+  const emailHash = createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
+  await (await getDatabase()).collection("review_submission_limits").deleteMany({ shopDomain, emailHash });
 }
 
 /**
@@ -128,6 +136,7 @@ export async function createReview(
     source: input.source || "manual",
     createdAt: now,
     updatedAt: now,
+    ...(input.submissionKey ? { submissionKey: input.submissionKey } : {}),
   };
 
   const result = await collection.insertOne(doc);
@@ -142,9 +151,8 @@ export async function listReviews(
   filter: ListReviewsFilter = {}
 ) {
   const collection = await getReviewsCollection();
-  const page = Math.max(1, Number(filter.page) || 1);
-  const limit = Math.max(1, Math.min(50, Number(filter.limit) || 15));
-  const skip = (page - 1) * limit;
+  const requestedPage = reviewPage(filter.page);
+  const limit = Number.isInteger(filter.limit) ? Math.max(1, Math.min(50, filter.limit!)) : 15;
 
   const query: any = { shopDomain };
 
@@ -173,18 +181,21 @@ export async function listReviews(
     ];
   }
 
-  const [rawReviews, totalMatching, allReviewsForStats] = await Promise.all([
-    collection
-      .find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .toArray(),
+  const [totalMatching, summary] = await Promise.all([
     collection.countDocuments(query),
-    collection
-      .find({ shopDomain }, { projection: { status: 1, rating: 1 } })
-      .toArray(),
+    collection.aggregate([
+      { $match: { shopDomain } },
+      { $group: {
+        _id: null, total: { $sum: 1 }, averageRating: { $avg: "$rating" },
+        published: { $sum: { $cond: [{ $eq: ["$status", "published"] }, 1, 0] } },
+        pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
+        rejected: { $sum: { $cond: [{ $eq: ["$status", "rejected"] }, 1, 0] } },
+      } },
+    ]).toArray(),
   ]);
+  const totalPages = Math.ceil(totalMatching / limit) || 1;
+  const page = Math.min(requestedPage, totalPages);
+  const rawReviews = await collection.find(query).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).toArray();
 
   const reviews = rawReviews.map((r) => ({
     ...r,
@@ -192,29 +203,18 @@ export async function listReviews(
   }));
 
   const stats: ReviewStats = {
-    total: allReviewsForStats.length,
-    published: 0,
-    pending: 0,
-    rejected: 0,
-    averageRating: 0,
+    total: summary[0]?.total || 0,
+    published: summary[0]?.published || 0,
+    pending: summary[0]?.pending || 0,
+    rejected: summary[0]?.rejected || 0,
+    averageRating: Number((summary[0]?.averageRating || 0).toFixed(1)),
   };
-
-  let totalRating = 0;
-  for (const r of allReviewsForStats) {
-    if (r.status === "published") stats.published += 1;
-    else if (r.status === "pending") stats.pending += 1;
-    else if (r.status === "rejected") stats.rejected += 1;
-    totalRating += r.rating || 0;
-  }
-
-  stats.averageRating =
-    stats.total > 0 ? Number((totalRating / stats.total).toFixed(1)) : 0;
 
   return {
     reviews,
     total: totalMatching,
     page,
-    totalPages: Math.ceil(totalMatching / limit) || 1,
+    totalPages,
     stats,
   };
 }
@@ -279,8 +279,8 @@ export async function listPublicReviews(shopDomain: string, productId: string, p
   const [rows, dist] = await Promise.all([
     collection
       .find(match)
-      .sort({ createdAt: -1 })
-      .skip((Math.max(1, page) - 1) * PAGE_SIZE)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip((reviewPage(page) - 1) * PAGE_SIZE)
       .limit(PAGE_SIZE + 1)
       .toArray(),
     collection.aggregate([{ $match: match }, { $group: { _id: "$rating", n: { $sum: 1 } } }]).toArray(),
@@ -313,20 +313,45 @@ export async function listPublicReviews(shopDomain: string, productId: string, p
   };
 }
 
-/** Storefront submission: pending review, with duplicate and per-email throttle checks. */
+/** Storefront submission: pending review with atomic duplicate protection. */
 export async function createStorefrontReview(
   shopDomain: string,
   input: CreateReviewInput
-): Promise<ReviewDocument | "duplicate" | "throttled"> {
+): Promise<ReviewDocument | "duplicate"> {
   const collection = await getReviewsCollection();
   const email = input.reviewer.email.trim().toLowerCase();
-  const recent = await collection
-    .find({ shopDomain, "reviewer.email": email, createdAt: { $gt: new Date(Date.now() - 24 * HOUR) } })
-    .project({ productId: 1, body: 1, createdAt: 1 })
-    .toArray();
+  const duplicate = await collection.findOne({ shopDomain, "reviewer.email": email, productId: input.productId, body: input.body.trim(), createdAt: { $gt: new Date(Date.now() - 24 * HOUR) } });
+  if (duplicate) return "duplicate";
+  const submissionKey = createHash("sha256").update(JSON.stringify([shopDomain, input.productId, email, input.body.trim()])).digest("hex");
+  try {
+    return await createReview(shopDomain, { ...input, status: "pending", source: "storefront", submissionKey });
+  } catch (error) {
+    if (error instanceof MongoServerError && error.code === 11000) return "duplicate";
+    throw error;
+  }
+}
 
-  if (recent.some((r) => r.productId === input.productId && r.body === input.body.trim())) return "duplicate";
-  if (recent.filter((r) => r.createdAt > new Date(Date.now() - HOUR)).length >= 5) return "throttled";
+let limitsReady: Promise<unknown> | undefined;
 
-  return createReview(shopDomain, { ...input, status: "pending", source: "storefront" });
+/** Shared counters run before product lookup. Email changes still consume the shop limit. */
+export async function allowStorefrontSubmission(shopDomain: string, email: string, now = Date.now()) {
+  const limits = (await getDatabase()).collection<{ _id: string; count: number; shopDomain: string; expiresAt: Date; emailHash?: string }>("review_submission_limits");
+  limitsReady ??= limits.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch((error) => { limitsReady = undefined; throw error; });
+  await limitsReady;
+  // shortcut: fixed windows permit a boundary burst; use a sliding window if real traffic needs finer limits.
+  for (const [subject, window, maximum] of [["shop", 60_000, 60], [email.trim().toLowerCase(), HOUR, 5]] as const) {
+    const bucket = Math.floor(now / window);
+    const id = createHash("sha256").update(JSON.stringify([shopDomain, subject, window, bucket])).digest("hex");
+    try {
+      await limits.findOneAndUpdate(
+        { _id: id, count: { $lt: maximum } },
+        { $inc: { count: 1 }, $setOnInsert: { shopDomain, expiresAt: new Date((bucket + 1) * window), ...(subject !== "shop" ? { emailHash: createHash("sha256").update(subject).digest("hex") } : {}) } },
+        { upsert: true }
+      );
+    } catch (error) {
+      if (error instanceof MongoServerError && error.code === 11000) return false;
+      throw error;
+    }
+  }
+  return true;
 }
