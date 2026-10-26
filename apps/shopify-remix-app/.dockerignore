@@ -1,3 +1,14 @@
 .cache
 build
 node_modules
+.git
+.github
+.shopify
+.env
+.env.*
+!.env.example
+**/*.sqlite
+**/*.sqlite-*
+**/*.db
+**/*.db-*
+*.log

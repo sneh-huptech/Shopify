@@ -1,7 +1,5 @@
-// Needs a local MongoDB. Uses a throwaway database, dropped at the end.
-process.env.MONGODB_DB_NAME = "shopify_app_test";
-
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { getDatabase, getMongoClient } from "./mongodb.server";
 import {
   createReview,
@@ -12,6 +10,11 @@ import {
   listReviews,
   updateReviewStatus,
 } from "./reviews.server";
+
+// Never use the app's database or connection URI for integration tests.
+process.env.MONGODB_URI = process.env.MONGODB_TEST_URI || "mongodb://127.0.0.1:27017/?serverSelectionTimeoutMS=5000";
+process.env.MONGODB_DB_NAME = `shopify_app_test_${randomUUID().replaceAll("-", "")}`;
+const client = await getMongoClient();
 
 const input = (email: string) => ({
   productId: "gid://shopify/Product/1",
@@ -58,6 +61,9 @@ try {
 
   console.log("ok");
 } finally {
-  await (await getDatabase()).dropDatabase();
-  await (await getMongoClient()).close();
+  try {
+    await (await getDatabase()).dropDatabase();
+  } finally {
+    await client.close();
+  }
 }

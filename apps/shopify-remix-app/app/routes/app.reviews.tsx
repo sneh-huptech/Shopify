@@ -12,7 +12,7 @@ import {
   type ReviewDocument,
   type ReviewStatus,
 } from "../db/reviews.server";
-import { getShopifyProducts, type ShopifyProductItem } from "../services/products.server";
+import { getShopifyProducts } from "../services/products.server";
 import { StarRating } from "../components/StarRating";
 import { StatusBadge } from "../components/StatusBadge";
 import { SummaryMetrics } from "../components/SummaryMetrics";
